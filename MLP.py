@@ -9,46 +9,99 @@ class MLP():
         self.hidden_layers = hidden_layers
         self.weights = []
 
-    def fit(self,x_train,d_train):
+    def train(self,x_train,d_train):
         #Inicialização de variáveis da rede neural
         I,Y,gradient,self.weights,accumulator = self.init_variables(len(x_train[0,:]),len(d_train[0,:]))
-        sqrt_error = [0, self.precision+1]
+        x_train = self.preparateInputData(x_train)
+        eqm = [0, self.precision+1]
         epoch = 0
 
         while True:
 
-            sqrt_error[0] = sqrt_error[1]
-            
+            eqm[0] = eqm[1]
+            squareError = 0
 
+            #Zerar o acumulador
+            for index in range(len(accumulator)):
+                accumulator[index] = np.zeros((len(accumulator[index]),len(accumulator[index][0,:])))
+            
             for sample in range( len(x_train) ):
                 # Foward
-                for ctr in range( len(self.hidden_layers) ):
+                for ctr in range( len(self.hidden_layers) + 1 ):
                     if ctr == 0:
-                        I[ctr] = self.weight[ctr]*x_train[sample,:]
-                        Y[ctr] = np.concatenate(-1, np.tanh(I[ctr]))
+                        I[ctr] = np.dot(self.weights[ctr],x_train[sample,:][np.newaxis].transpose()) 
+                        Y[ctr] = np.concatenate( (-1*np.ones((1,1)), np.tanh(I[ctr])) )
                     elif ctr == len(self.hidden_layers):
-                        I[ctr] = self.weight[ctr]*I[ctr-1]
+                        I[ctr] = np.dot(self.weights[ctr],Y[ctr-1])
                         Y[ctr] = np.tanh(I[ctr])
                     else:
-                        I[ctr] = self.weight[ctr]*I[ctr-1]
-                        Y[ctr] = np.concatenate(-1, np.tanh(I[ctr]))
+                        I[ctr] = np.dot(self.weights[ctr],Y[ctr-1])
+                        Y[ctr] = np.concatenate( (-1*np.ones((1,1)), np.tanh(I[ctr])) )
 
                 #Backward
-                for ctr in reversed( range( len(self.hidden_layers) ) ):
+                for ctr in reversed( range( len(self.hidden_layers) + 1 ) ):
                     if ctr == 0:
-                        gradient[ctr] = np.dot(self.weights[ctr+1][:,1::].transpose()*gradient[ctr + 1],) 
-                        #adqMatrixTranspose((Matrix<double>)weigth[ctr + 1]) * (Matrix<double>)gradient[ctr + 1], (Matrix<double>)derTanHiperbolica((Matrix<double>)I[ctr]));
-                        #accumulator[ctr] = (Matrix<double>)accumulator[ctr] + taxaAprendizado * (Matrix<double>)gradient[ctr] * vetEntrada;
+                        gradient[ctr] = np.dot(self.weights[ctr+1][:,1::].transpose(),gradient[ctr + 1]) * self.diff_tanh(I[ctr]) 
+                        accumulator[ctr] += self.learn_rate * np.dot(gradient[ctr],x_train[sample,:][np.newaxis])
                     elif ctr == len(self.hidden_layers):
-                        I[ctr] = self.weight[ctr]*I[ctr-1]
-                        Y[ctr] = math.tanh(I[ctr])
+                        gradient[ctr] = (d_train[sample,:][np.newaxis].transpose() - Y[ctr]) * self.diff_tanh(I[ctr])
+                        accumulator[ctr] += self.learn_rate * np.dot(gradient[ctr],Y[ctr-1].transpose())
                     else:
-                        I[ctr] = self.weight[ctr]*I[ctr-1]
-                        Y[ctr] = np.concatenate(-1, math.tanh(I[ctr]))
+                        gradient[ctr] = np.dot(self.weights[ctr+1][:,1::].transpose(),gradient[ctr + 1]) * self.diff_tanh(I[ctr])
+                        accumulator[ctr] += self.learn_rate * np.dot(gradient[ctr],Y[ctr - 1].transpose())
 
+            # Ajuste dos pesos da rede neural
+            for ctr in range(len(self.hidden_layers) + 1):
+                self.weights[ctr] += accumulator[ctr] / len(x_train)
 
-            if(sqrt_error[1] - sqrt_error[0]<=self.precision or epoch>self.n_epoch):
+            #Forward para cálculo do erro
+            for sample in range( len(x_train) ):
+                # Foward
+                for ctr in range( len(self.hidden_layers) + 1 ):
+                    if ctr == 0:
+                        I[ctr] = np.dot(self.weights[ctr],x_train[sample,:][np.newaxis].transpose()) 
+                        Y[ctr] = np.concatenate( (-1*np.ones((1,1)), np.tanh(I[ctr])) )
+                    elif ctr == len(self.hidden_layers):
+                        I[ctr] = np.dot(self.weights[ctr],Y[ctr-1])
+                        Y[ctr] = np.tanh(I[ctr])
+                    else:
+                        I[ctr] = np.dot(self.weights[ctr],Y[ctr-1])
+                        Y[ctr] = np.concatenate( (-1*np.ones((1,1)), np.tanh(I[ctr])) )
+
+                squareError += sum((d_train[sample,:][np.newaxis].transpose() - Y[len(self.hidden_layers)])**2)
+            
+            eqm[1] = squareError/len(x_train)
+                
+            epoch+=1
+            print(abs(eqm[1] - eqm[0]))
+
+            if(abs(eqm[1] - eqm[0])<=self.precision or epoch>self.n_epoch):
                 break
+
+    def application(self,x_app):
+        #Inicialização de variáveis
+        variables = self.init_variables(len(self.weights[0][0,:]),len(self.weights[len(self.hidden_layers)]))
+        I = variables[0]
+        Y = variables[1]
+
+        result = []
+
+        for sample in range( len(x_app) ):
+            # Foward
+            for ctr in range( len(self.hidden_layers) + 1 ):
+                if ctr == 0:
+                    I[ctr] = np.dot(self.weights[ctr],x_app[sample,:][np.newaxis].transpose()) 
+                    Y[ctr] = np.concatenate( (-1*np.ones((1,1)), np.tanh(I[ctr])) )
+                elif ctr == len(self.hidden_layers):
+                    I[ctr] = np.dot(self.weights[ctr],Y[ctr-1])
+                    Y[ctr] = np.tanh(I[ctr])
+                else:
+                    I[ctr] = np.dot(self.weights[ctr],Y[ctr-1])
+                    Y[ctr] = np.concatenate( (-1*np.ones((1,1)), np.tanh(I[ctr])) )
+
+            result.append(self.realizeProbability(Y[len(self.hidden_layers)]))
+        
+        return result
 
     def init_variables(self,x_train_length,d_train_length):
         weights = []
@@ -68,27 +121,44 @@ class MLP():
 
             I.append(Iaux)
             Y.append(Yaux)
-            gradient(Iaux)
+            gradient.append(Iaux)
 
         # Inicializar as matrizes de pesos e o acumulador
-        for index in range(len(self.hidden_layers)):
+        for index in range(len(self.hidden_layers)+1):
             if index == 0:
-                weight = np.random.rand(self.hidden_layers[index], x_train_length)
-                acc = np.zeros((self.hidden_layers[index], x_train_length))
+                weight = np.random.rand(self.hidden_layers[index], x_train_length+1)-0.5
+                acc = np.zeros((self.hidden_layers[index], x_train_length+1))
             elif index == len(self.hidden_layers):
-                weight = np.random.rand(self.hidden_layers[index-1], d_train_length)
-                acc = np.zeros((self.hidden_layers[index-1], d_train_length))
+                weight = np.random.rand(d_train_length,self.hidden_layers[index-1] + 1)-0.5
+                acc = np.zeros((d_train_length,self.hidden_layers[index-1] +1))
             else:
-                weight = np.random.rand(self.hidden_layers[index], self.hidden_layers[index-1])
-                acc = np.zeros((self.hidden_layers[index], self.hidden_layers[index-1]))
+                weight = np.random.rand(self.hidden_layers[index], self.hidden_layers[index-1]+1)-0.5
+                acc = np.zeros((self.hidden_layers[index], self.hidden_layers[index-1]+1))
             
             weights.append(weight)
             accumulator.append(acc)
 
         return I,Y,gradient,weights,accumulator
+            
+    def realizeProbability(self, vector):
+        for index in range(len(vector)):
+            if vector[index] == max(vector):
+                vector[index] = 1
+            else:
+                vector[index] = -1
 
-def diff_htan(value):
-    return (1 - np.tanh(value)**2)
+        return vector
 
+    def diff_tanh(self,value):
+        return (1 - np.tanh(value)**2)
+    
+    def preparateInputData(self, inputData):
+        #Normalização dos dados
+        for column in range(len(inputData[0])):
+            inputData[:,column] = ( inputData[:,column] - min(inputData[:,column]) ) - ( max(inputData[:,column]) - min(inputData[:,column]) )
 
+        #Concatenar uma matriz coluna igual a -1
+        aux_matrix = -1 * np.ones( (len(inputData),1) )
+        inputData = np.concatenate((aux_matrix,inputData),axis=1)
 
+        return inputData
